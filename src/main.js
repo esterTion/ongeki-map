@@ -29,6 +29,11 @@ ktx2Loader.init();
 
 const ASSET_PATH = './assets';
 
+const LAYERS = {
+  TILE: 0,
+  POINT_TEXT: 0.1,
+}
+
 let camera, scene, renderer, controls;
 
 let requestRender = true
@@ -102,6 +107,7 @@ function initSprites() {
 
   spritePromises.tiles = new Promise((res, rej) => initSprite(res, rej, 'tiles'))
   spritePromises.items = new Promise((res, rej) => initSprite(res, rej, 'items'))
+  spritePromises.number = new Promise((res, rej) => initSprite(res, rej, 'number'))
 }
 async function initSprite(res, rej, name) {
   const result = await fetch(`${ASSET_PATH}/${name}.json`).then(r => r.json())
@@ -144,6 +150,14 @@ function setSpriteVisible(sprite, x, y, z, w, h) {
   sprite.setMatrixAt(idx, matrix);
   sprite.instanceMatrix.needsUpdate = true;
   requestRender = true;
+}
+function resetSprites() {
+  for (const map of Object.values(sprites)) {
+    for (const sprite of Object.values(map)) {
+      sprite.instance.count = 0;
+      sprite.instance.instanceMatrix.needsUpdate = true;
+    }
+  }
 }
 
 function render() {
@@ -190,29 +204,27 @@ function initMaps() {
 }
 
 let loadingSession = null
+const tileInfoMap = []
 async function loadMapInfo(id) {
   const currentLoadSession = Symbol('load');
+  loadingSession = currentLoadSession
   const mapEvent = await fetch(`${ASSET_PATH}/xml/mapevent${(id+'').padStart(4, '0')}/MapEvent.xml`)
     .then(r => r.text())
     .then(r => (new DOMParser()).parseFromString(r, 'text/xml'))
   const tiles = Array.from(mapEvent.getElementsByTagName('MapEventTileData'))
-  const tileInfoMap = []
 
   await spritePromises.tiles
+
+  if (loadingSession !== currentLoadSession) return;
+  tileInfoMap.length = 0
 
   tiles.forEach(tile => {
     const tileInfo = parseTileInfo(tile)
     const tileId = tileInfo.TileID;
     tileInfoMap[tileId] = tileInfo
-    const hasContent = tileInfo.Reward.id !== 0
-                    || tileInfo.UnlockKeyID !== 0
-                    || tileInfo.RewardKeyID !== 0
-                    || tileInfo.RewardScenarioID !== 0
-    const usingTile = sprites.tiles[hasContent ? 'tile_with_item' : 'tile_empty']
-    const w = 0.5
-    const h = usingTile.frame.h / usingTile.frame.w * w
-    setSpriteVisible(usingTile, tileInfo.CoordX, 0, -tileInfo.CoordY, w, h)
   })
+  renderTiles()
+
   console.log(tileInfoMap)
   const startingTile = tileInfoMap[1]
   camera.position.set(startingTile.CoordX, 50, -startingTile.CoordY)
@@ -244,6 +256,30 @@ function parseTileInfo(tile) {
     }
   }
   return info;
+}
+function renderTiles() {
+  resetSprites()
+  for (const tileInfo of tileInfoMap) {
+    if (!tileInfo) continue
+    const hasContent = tileInfo.Reward.id !== 0
+                    || tileInfo.UnlockKeyID !== 0
+                    || tileInfo.RewardKeyID !== 0
+                    || tileInfo.RewardScenarioID !== 0
+    const usingTile = sprites.tiles[hasContent ? 'tile_with_item' : 'tile_empty']
+    const x = tileInfo.CoordX
+    const y = -tileInfo.CoordY
+    const w = 0.5
+    const h = usingTile.frame.h / usingTile.frame.w * w
+    setSpriteVisible(usingTile, x, LAYERS.TILE, y, w, h)
+
+    let point = (tileInfo.Point + '').split('')
+    for (const i in point) {
+      const text = sprites.number['n'+point[i]]
+      const textw = 0.2;
+      const texth = text.frame.h / text.frame.w * textw
+      setSpriteVisible(text, x + 0.25 + i * 0.1, LAYERS.POINT_TEXT, y + 0.2, textw, texth)
+    }
+  }
 }
 
 init();
