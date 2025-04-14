@@ -42,7 +42,7 @@ const LAYERS = {
   ARROW: -0.1,
   TILE: 0,
   REWARD: 0.1,
-  POINT_TEXT: 0.1,
+  POINT_TEXT: 0.2,
 }
 
 let camera, scene, renderer, controls;
@@ -328,7 +328,7 @@ function renderTiles() {
     setSpriteVisible(usingTile, x, LAYERS.TILE, y, w, h)
 
     // 格子数
-    let point = (tileInfo.Point + '').split('')
+    const point = (tileInfo.Point + '').split('')
     for (const i in point) {
       const text = sprites.number['n'+point[i]]
       const textw = 0.2;
@@ -356,9 +356,65 @@ function renderTiles() {
       rotation.multiply(new Quaternion().setFromEuler(new Euler(-Math.PI / 2, 0, -Math.PI / 2, 'XYZ')))
       const arrowStartPosition = conditionTilePosition.add(arrowDirection.multiplyScalar(0.5));
 
-      matrix.compose(arrowStartPosition, rotation, new Vector3(scale - 1, 0.7, 1))
+      matrix.compose(arrowStartPosition, rotation, new Vector3(scale - 1, 0.5, 1))
       arrow.setMatrixAt(idx, matrix);
       updateSprite(arrow)
+    }
+
+    // 物品
+    if (tileInfo.UnlockKeyID) {
+      const item = sprites.items['lock_'+tileInfo.UnlockKeyID]
+      const itemw = 0.5
+      const itemh = item.frame.h / item.frame.w * itemw
+      setSpriteVisible(item, x, LAYERS.REWARD, y - 0.1, itemw, itemh)
+    }
+    if (tileInfo.RewardKeyID) {
+      const item = sprites.items['key_'+tileInfo.RewardKeyID]
+      const itemw = 0.5
+      const itemh = item.frame.h / item.frame.w * itemw
+      setSpriteVisible(item, x, LAYERS.REWARD, y - 0.1, itemw, itemh)
+    }
+    if (tileInfo.RewardScenarioID) {
+      const item = sprites.items['reward_ticket_r']
+      const itemw = 0.5
+      const itemh = item.frame.h / item.frame.w * itemw
+      setSpriteVisible(item, x, LAYERS.REWARD, y - 0.1, itemw, itemh)
+    }
+    if (tileInfo.Reward.id) {
+      const item = sprites.items[getRewardSprite(tileInfo.Reward)]
+      const itemh = 0.4
+      const itemw = item.frame.w / item.frame.h * itemh
+      setSpriteVisible(item, x, LAYERS.REWARD, y - 0.1, itemw, itemh)
+      if (tileInfo.RewardNum > 1) {
+        const num = (tileInfo.RewardNum+'').split('')
+        for (const i in num) {
+          const text = sprites.number['n'+num[i]]
+          const textw = 0.15;
+          const texth = text.frame.h / text.frame.w * textw
+          setSpriteVisible(text, x + 0.2 + i * 0.08, LAYERS.REWARD, y - 0.3, textw, texth)
+        }
+      }
+    }
+  }
+}
+function getRewardSprite(reward) {
+  const { id, str } = reward
+  if (id > 2100000 && id < 2200000) return 'reward_item' // nameplate
+  if (id > 7000000 && id < 8000000) return 'reward_music'
+  if (id > 1100000 && id < 1200000) return 'reward_item' // card
+  switch (id) {
+    case 4001004: return 'reward_ticket_ssr'
+    case 6000001: return 'reward_money'
+    case 12000001: return 'reward_kaika'
+    case 13000008: return 'reward_item' // 强化 中
+    case 13000012: return 'reward_item' // 强化 大
+    case 14000001: return 'reward_gift_1'
+    case 14000002: return 'reward_gift_2'
+    case 14000003: return 'reward_gift_3'
+    case 21000001: return 'reward_droplet'
+    default: {
+      console.log(reward)
+      return 'reward_ticket_r'
     }
   }
 }
