@@ -16,6 +16,15 @@ import {
   OrthographicCamera,
   AxesHelper,
   InstancedMesh,
+  ConeGeometry,
+  Group,
+  CylinderGeometry,
+  Shape,
+  ShapeGeometry,
+  Vector2,
+  CanvasTexture,
+  RepeatWrapping,
+  Euler,
 } from 'three';
 
 import { MapControls } from 'three/addons/controls/MapControls.js';
@@ -30,17 +39,19 @@ ktx2Loader.init();
 const ASSET_PATH = './assets';
 
 const LAYERS = {
+  ARROW: -0.1,
   TILE: 0,
+  REWARD: 0.1,
   POINT_TEXT: 0.1,
 }
 
 let camera, scene, renderer, controls;
 
 let requestRender = true
-function requestRenderLoop() {
+function requestRenderLoop(now) {
 	if (requestRender) {
-		requestRender = false
-		render()
+		// requestRender = false
+		render(now)
 	}
 	requestAnimationFrame(requestRenderLoop)
 }
@@ -92,6 +103,43 @@ function init() {
 	controls.addEventListener('change', () => requestRender = true);
 
   initSprites();
+
+  {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0,0,256,0);
+    gradient.addColorStop(0, 'rgba(100,100,100,0.7)');
+    gradient.addColorStop(0.4, 'rgba(100,100,100,0.7)');
+    gradient.addColorStop(0.45, 'rgba(255,255,255,0.9)');
+    gradient.addColorStop(0.5, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.55, 'rgba(255,255,255,0.9)');
+    gradient.addColorStop(0.6, 'rgba(100,100,100,0.7)');
+    gradient.addColorStop(1, 'rgba(100,100,100,0.7)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 256, 256);
+    const gradentTexture = new CanvasTexture(canvas);
+    gradentTexture.wrapS = RepeatWrapping;
+    gradentTexture.wrapT = RepeatWrapping;
+    const shape = new Shape;
+    ([
+      [0, 0.2],
+      [0.5, 0.2],
+      [0.5, 0.4],
+      [1, 0],
+      [0.5, -0.4],
+      [0.5, -0.2],
+      [0, -0.2],
+    ]).forEach(i => shape.lineTo(i[0], i[1]))
+    const material = new MeshBasicMaterial({color: 0x3cbbcf, transparent: true, map: gradentTexture})
+    const arrow = new InstancedMesh(new ShapeGeometry(shape), material, 1024)
+    arrow.count = 0;
+    scene.add(arrow);
+    sprites.arrow = {arrow:{
+      instance: arrow,
+      texture: gradentTexture,
+    }}
+  }
 }
 
 function initSprites() {
@@ -148,7 +196,7 @@ function setSpriteVisible(sprite, x, y, z, w, h) {
     new Vector3(w, h, 1)
   );
   sprite.setMatrixAt(idx, matrix);
-  sprite.instanceMatrix.needsUpdate = true;
+  updateSprite(sprite);
   requestRender = true;
 }
 function resetSprites() {
@@ -159,8 +207,14 @@ function resetSprites() {
     }
   }
 }
+function updateSprite(sprite) {
+  sprite.instanceMatrix.needsUpdate = true;
+  sprite.computeBoundingBox();
+  sprite.computeBoundingSphere();
+}
 
-function render() {
+function render(now) {
+  sprites.arrow.arrow.texture.offset.x = -now / 2000;
 	renderer.render(scene, camera);
   rendererStats.update(renderer);
   stats.update();
@@ -213,7 +267,7 @@ async function loadMapInfo(id) {
     .then(r => (new DOMParser()).parseFromString(r, 'text/xml'))
   const tiles = Array.from(mapEvent.getElementsByTagName('MapEventTileData'))
 
-  await spritePromises.tiles
+  await Promise.all(Object.values(spritePromises))
 
   if (loadingSession !== currentLoadSession) return;
   tileInfoMap.length = 0
@@ -261,6 +315,7 @@ function renderTiles() {
   resetSprites()
   for (const tileInfo of tileInfoMap) {
     if (!tileInfo) continue
+    // 格子
     const hasContent = tileInfo.Reward.id !== 0
                     || tileInfo.UnlockKeyID !== 0
                     || tileInfo.RewardKeyID !== 0
@@ -272,12 +327,38 @@ function renderTiles() {
     const h = usingTile.frame.h / usingTile.frame.w * w
     setSpriteVisible(usingTile, x, LAYERS.TILE, y, w, h)
 
+    // 格子数
     let point = (tileInfo.Point + '').split('')
     for (const i in point) {
       const text = sprites.number['n'+point[i]]
       const textw = 0.2;
       const texth = text.frame.h / text.frame.w * textw
       setSpriteVisible(text, x + 0.25 + i * 0.1, LAYERS.POINT_TEXT, y + 0.2, textw, texth)
+    }
+
+    // 解锁箭头
+    for (const unlockId of tileInfo.UnlockConditionTileID) {
+      const unlockTile = tileInfoMap[unlockId]
+      if (!unlockTile) continue
+      const unlockX = unlockTile.CoordX
+      const unlockY = -unlockTile.CoordY
+      const arrow = sprites.arrow.arrow.instance
+      const idx = arrow.count++;
+      const matrix = new Matrix4;
+
+      const conditionTilePosition = new Vector3(unlockX, LAYERS.ARROW, unlockY);
+      const currentTilePosition = new Vector3(x, LAYERS.ARROW, y);
+      const arrowDirection = new Vector3().subVectors(currentTilePosition, conditionTilePosition);
+      const scale = arrowDirection.length();
+      arrowDirection.normalize();
+      const rotation = new Quaternion();
+      rotation.setFromUnitVectors(new Vector3(0, 0, 1), arrowDirection);
+      rotation.multiply(new Quaternion().setFromEuler(new Euler(-Math.PI / 2, 0, -Math.PI / 2, 'XYZ')))
+      const arrowStartPosition = conditionTilePosition.add(arrowDirection.multiplyScalar(0.5));
+
+      matrix.compose(arrowStartPosition, rotation, new Vector3(scale - 1, 0.7, 1))
+      arrow.setMatrixAt(idx, matrix);
+      updateSprite(arrow)
     }
   }
 }
