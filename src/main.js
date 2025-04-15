@@ -26,6 +26,9 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 // import Stats from 'three/addons/libs/stats.module.js';
 // import THREEx from './threex.rendererstats.js';
 
+// createElement
+function _(e,t,i){var a=null;if("text"===e)return document.createTextNode(t);a=document.createElement(e);for(var n in t)if("style"===n)for(var o in t.style)a.style[o]=t.style[o];else if("className"===n)a.className=t[n];else if("event"===n)for(var o in t.event)a.addEventListener(o,t.event[o]);else a.setAttribute(n,t[n]);if(i)if("string"==typeof i)a.innerHTML=i;else if(Array.isArray(i))for(var l=0;l<i.length;l++)null!=i[l]&&a.appendChild(i[l]);return a;}
+
 const ktx2Loader = new KTX2Loader();
 ktx2Loader.setTranscoderPath('./script/');
 ktx2Loader.init();
@@ -75,9 +78,14 @@ function getLoadingDescription(adds, removes) {
   return Object.keys(loadingItem).map(i => `Loading ${i}`).join('\n');
 }
 const infoDiv = document.createElement('div');
-infoDiv.setAttribute('style', 'position:fixed;top:70px;left:10px;background-color:rgba(255,255,255,0.7);padding:20px;white-space:pre-wrap;max-width:300px;font-family:Arial,Meiryo,"Microsoft Yahei";pointer-events:none');
+infoDiv.setAttribute('style', 'position:fixed;top:100px;left:10px;background-color:rgba(255,255,255,0.7);padding:20px;white-space:pre-wrap;max-width:300px;font-family:Arial,Meiryo,"Microsoft Yahei";pointer-events:none');
 infoDiv.textContent = getLoadingDescription(['tiles', 'items', 'number', 'map-info'], []);
 document.body.appendChild(infoDiv);
+
+const rewardTypeSelect = _('select', { style: {position: 'fixed', top:'65px', left: '10px'}}, [
+  _('option', { value: 'all' }, [_('text', '所有奖励')])
+]);
+document.body.appendChild(rewardTypeSelect);
 
 // const stats = new Stats();
 // document.body.appendChild( stats.dom );
@@ -292,6 +300,12 @@ function initMaps() {
     loadMapInfo(mapId);
   });
   loadMapInfo(20);
+
+  rewardTypeSelect.appendChild(_('option', { value: 'story' }, [_('text', '剧情')]));
+  for (const v in RewardTypes) {
+    rewardTypeSelect.appendChild(_('option', { value: v }, [_('text', v === 'unknown' ? '其他物品' : RewardTypes[v])]));
+  }
+  rewardTypeSelect.addEventListener('change', renderTiles);
 }
 
 let loadingSession = null;
@@ -353,8 +367,15 @@ function parseTileInfo(tile) {
 }
 function renderTiles() {
   resetSprites();
+  const filterType = rewardTypeSelect.value;
+  const tilesFiltered = [];
+  const filteringColor = new Color(filterType === 'all' ? '#FFFFFF' : '#777777');
   for (const tileInfo of tileInfoMap) {
     if (!tileInfo) continue;
+
+    const showReward = filterType === 'all'
+                    || (tileInfo.RewardScenarioID && filterType === 'story')
+                    || (tileInfo.Reward.id && filterType === getRewardType(tileInfo.Reward));
     // 格子
     const hasContent = tileInfo.Reward.id !== 0
                     || tileInfo.UnlockKeyID !== 0
@@ -365,7 +386,13 @@ function renderTiles() {
     const y = -tileInfo.CoordY;
     const w = 0.5;
     const h = usingTile.frame.h / usingTile.frame.w * w;
+    usingTile.instance.setColorAt(usingTile.instance.count, filteringColor);
+    usingTile.instance.instanceColor.needsUpdate = true;
     setSpriteVisible(usingTile, x, LAYERS.TILE, y, w, h);
+    tileInfo.usingTile = usingTile.instance;
+    tileInfo.usingTileId = usingTile.instance.count - 1;
+    calculateUnlockPoint(tileInfo);
+    if (filterType !== 'all' && showReward) tilesFiltered.push(tileInfo);
 
     // 格子数
     const point = (tileInfo.Point + '').split('');
@@ -377,6 +404,7 @@ function renderTiles() {
     }
 
     // 解锁箭头
+    tileInfo.unlockArrows = [];
     for (const unlockId of tileInfo.UnlockConditionTileID) {
       const unlockTile = tileInfoMap[unlockId];
       if (!unlockTile) continue;
@@ -398,7 +426,10 @@ function renderTiles() {
 
       matrix.compose(arrowStartPosition, rotation, new Vector3(scale - 1, 0.5, 1));
       arrow.setMatrixAt(idx, matrix);
+      arrow.setColorAt(idx, filteringColor);
+      arrow.instanceColor.needsUpdate = true;
       updateSprite(arrow);
+      tileInfo.unlockArrows.push(idx);
     }
 
     // 物品
@@ -414,7 +445,10 @@ function renderTiles() {
       const itemh = item.frame.h / item.frame.w * itemw;
       setSpriteVisible(item, x, LAYERS.REWARD, y - 0.1, itemw, itemh);
     }
-    if (tileInfo.RewardScenarioID) {
+
+    if (!showReward) continue;
+
+    if (tileInfo.RewardScenarioID && (filterType === 'all' || filterType === 'story')) {
       const item = sprites.items['reward_item'];
       const itemw = 0.5;
       const itemh = item.frame.h / item.frame.w * itemw;
@@ -434,6 +468,27 @@ function renderTiles() {
           setSpriteVisible(text, x + 0.2 + i * 0.08, LAYERS.REWARD, y - 0.3, textw, texth);
         }
       }
+    }
+  }
+
+  const tilesToBrighten = new Set();
+  for (const tile of tilesFiltered) {
+    tilesToBrighten.add(tile.TileID);
+    for (const id of tile.unlockTree) {
+      tilesToBrighten.add(id);
+    }
+  }
+  for (const tile of tilesToBrighten) {
+    const tileInfo = tileInfoMap[tile];
+    if (!tileInfo) continue;
+    const usingTile = tileInfo.usingTile;
+    const usingTileId = tileInfo.usingTileId;
+    usingTile.setColorAt(usingTileId, new Color('#FFFFFF'));
+    usingTile.instanceColor.needsUpdate = true;
+    for (const arrowId of tileInfo.unlockArrows) {
+      const arrow = sprites.arrow.arrow.instance;
+      arrow.setColorAt(arrowId, new Color('#FFFFFF'));
+      arrow.instanceColor.needsUpdate = true;
     }
   }
 }
@@ -558,9 +613,11 @@ function calculateUnlockPoint(tile) {
     const keyTile = tileInfoMap.find(i => i && i.RewardKeyID === tile.UnlockKeyID);
     calculateUnlockPoint(keyTile);
     const treeCombined = new Set();
+    treeCombined.add(keyTile.TileID);
+    treeCombined.add(leastPointConditionTile.TileID);
     leastPointConditionTile.unlockTree.forEach(i => treeCombined.add(i));
     keyTile.unlockTree.forEach(i => treeCombined.add(i));
-    let totalUnlockPoint = keyTile.Point;
+    let totalUnlockPoint = 0;
     for (const i of treeCombined) {
       const tile = tileInfoMap[i];
       if (tile) totalUnlockPoint += tile.Point;
