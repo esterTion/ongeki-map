@@ -23,8 +23,8 @@ import {
 
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
-import Stats from 'three/addons/libs/stats.module.js';
-import THREEx from './threex.rendererstats.js';
+// import Stats from 'three/addons/libs/stats.module.js';
+// import THREEx from './threex.rendererstats.js';
 
 const ktx2Loader = new KTX2Loader();
 ktx2Loader.setTranscoderPath('./script/');
@@ -73,15 +73,15 @@ infoDiv.setAttribute('style', 'position:fixed;top:70px;left:10px;background-colo
 infoDiv.textContent = getLoadingDescription(['tiles', 'items', 'number', 'map-info'], [])
 document.body.appendChild(infoDiv)
 
-const stats = new Stats();
-document.body.appendChild( stats.dom );
-var rendererStats	= new THREEx.RendererStats()
-rendererStats.domElement.style.position	= 'absolute'
-rendererStats.domElement.style.left	= '0px'
-rendererStats.domElement.style.top	= '60px'
-rendererStats.domElement.style.transform = 'scale(2)'
-rendererStats.domElement.style.transformOrigin = '0 0'
-document.body.appendChild( rendererStats.domElement )
+// const stats = new Stats();
+// document.body.appendChild( stats.dom );
+// var rendererStats	= new THREEx.RendererStats()
+// rendererStats.domElement.style.position	= 'absolute'
+// rendererStats.domElement.style.left	= '0px'
+// rendererStats.domElement.style.top	= '60px'
+// rendererStats.domElement.style.transform = 'scale(2)'
+// rendererStats.domElement.style.transformOrigin = '0 0'
+// document.body.appendChild( rendererStats.domElement )
 
 function init() {
   // camera = new PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -230,8 +230,8 @@ function render(now) {
   sprites.arrow.arrow.texture.offset.x = -now / 2000;
 	renderer.render(scene, camera);
   checkIntersection()
-  rendererStats.update(renderer);
-  stats.update();
+  // rendererStats.update(renderer);
+  // stats.update();
 }
 async function checkIntersection() {
   if (sprites.tiles) {
