@@ -61,6 +61,12 @@ window.addEventListener('pointermove', e => {
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
 });
+window.addEventListener('touchstart', e => {
+  if (e.touches.length > 0) {
+    mouse.x = (e.touches[0].clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.touches[0].clientY / window.innerHeight) * 2 + 1;
+  }
+});
 
 const loadingItem = {};
 function getLoadingDescription(adds, removes) {
@@ -69,7 +75,7 @@ function getLoadingDescription(adds, removes) {
   return Object.keys(loadingItem).map(i => `Loading ${i}`).join('\n');
 }
 const infoDiv = document.createElement('div');
-infoDiv.setAttribute('style', 'position:fixed;top:70px;left:10px;background-color:rgba(255,255,255,0.7);padding:20px;white-space:pre-wrap;max-width:300px;font-family:Arial,Meiryo,"Microsoft Yahei"');
+infoDiv.setAttribute('style', 'position:fixed;top:70px;left:10px;background-color:rgba(255,255,255,0.7);padding:20px;white-space:pre-wrap;max-width:300px;font-family:Arial,Meiryo,"Microsoft Yahei";pointer-events:none');
 infoDiv.textContent = getLoadingDescription(['tiles', 'items', 'number', 'map-info'], []);
 document.body.appendChild(infoDiv);
 
@@ -524,7 +530,7 @@ function renderTileInfo(pos) {
     const rewardType = getRewardType(tileInfo.Reward);
     const rewardName = RewardTypes[rewardType];
     text.push(`获得${rewardName}`);
-    text.push(`${tileInfo.Reward.str} (${tileInfo.Reward.id})`);
+    text.push(`${tileInfo.Reward.str} (${tileInfo.Reward.id}) x${tileInfo.RewardNum}`);
   }
   infoDiv.textContent = text.join('\n');
 }

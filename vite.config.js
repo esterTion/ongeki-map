@@ -4,6 +4,6 @@ export default {
 		target: ['ios12'],
 		minify: true,
 		sourcemap: false,
-		assetsDir: 'script',
+		assetsDir: '',
 	}
 }
