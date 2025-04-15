@@ -1,30 +1,24 @@
 import {
+  Vector2,
   Vector3,
   Quaternion,
   Matrix4,
+  Euler,
   Scene,
-	PerspectiveCamera,
   WebGLRenderer,
 	AmbientLight,
   PointLight,
   Color,
 
-  SphereGeometry,
   PlaneGeometry,
   MeshBasicMaterial,
-  Mesh,
   OrthographicCamera,
-  AxesHelper,
   InstancedMesh,
-  ConeGeometry,
-  Group,
-  CylinderGeometry,
   Shape,
   ShapeGeometry,
-  Vector2,
   CanvasTexture,
   RepeatWrapping,
-  Euler,
+  Raycaster,
 } from 'three';
 
 import { MapControls } from 'three/addons/controls/MapControls.js';
@@ -61,6 +55,24 @@ const loadedTextures = {}
 const spritePromises = {}
 const sprites = {}
 
+const raycaster = new Raycaster();
+const mouse = new Vector2(1, 1);
+window.addEventListener('pointermove', e => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+})
+
+const loadingItem = {}
+function getLoadingDescription(adds, removes) {
+  for (const add of adds) loadingItem[add] = true
+  for (const remove of removes) delete loadingItem[remove]
+  return Object.keys(loadingItem).map(i => `Loading ${i}`).join('\n')
+}
+const infoDiv = document.createElement('div')
+infoDiv.setAttribute('style', 'position:fixed;top:70px;left:10px;background-color:rgba(255,255,255,0.7);padding:20px;white-space:pre-wrap;max-width:300px;font-family:Arial,Meiryo,"Microsoft Yahei"')
+infoDiv.textContent = getLoadingDescription(['tiles', 'items', 'number', 'map-info'], [])
+document.body.appendChild(infoDiv)
+
 const stats = new Stats();
 document.body.appendChild( stats.dom );
 var rendererStats	= new THREEx.RendererStats()
@@ -96,7 +108,7 @@ function init() {
 	controls.minDistance = 0.5;
 	controls.maxDistance = 20;
 	controls.zoomSpeed = 3;
-	controls.panSpeed = 3;
+	controls.panSpeed = 1;
   controls.enableDamping = false;
   controls.enableRotate = false;
   controls.autoRotate = false;
@@ -182,6 +194,7 @@ async function initSprite(res, rej, name) {
     }
   }
   sprites[name] = spriteMap
+  infoDiv.textContent = getLoadingDescription([], [name])
   res()
 }
 const facingTop = new Quaternion;
@@ -216,8 +229,26 @@ function updateSprite(sprite) {
 function render(now) {
   sprites.arrow.arrow.texture.offset.x = -now / 2000;
 	renderer.render(scene, camera);
+  checkIntersection()
   rendererStats.update(renderer);
   stats.update();
+}
+async function checkIntersection() {
+  if (sprites.tiles) {
+    raycaster.setFromCamera( mouse, camera );
+    const intersect = raycaster.intersectObjects(Object.values(sprites.tiles).map(i => i.instance))
+    if (intersect.length) {
+      const obj = intersect[0].object
+      const id = intersect[0].instanceId
+      const matrix = new Matrix4;
+      obj.getMatrixAt(id, matrix);
+      const position = new Vector3;
+      position.setFromMatrixPosition(matrix);
+      renderTileInfo(position);
+    } else {
+      renderTileInfo(null);
+    }
+  }
 }
 
 function onWindowResize() {
@@ -269,6 +300,9 @@ async function loadMapInfo(id) {
 
   await Promise.all(Object.values(spritePromises))
 
+  infoDiv.textContent = getLoadingDescription([], ['map-info'])
+  infoDiv.style.display = 'none'
+
   if (loadingSession !== currentLoadSession) return;
   tileInfoMap.length = 0
 
@@ -279,7 +313,7 @@ async function loadMapInfo(id) {
   })
   renderTiles()
 
-  console.log(tileInfoMap)
+  console.log('tileInfoMap', tileInfoMap)
   const startingTile = tileInfoMap[1]
   camera.position.set(startingTile.CoordX, 50, -startingTile.CoordY)
   controls.target.set(startingTile.CoordX, 0, -startingTile.CoordY)
@@ -375,7 +409,7 @@ function renderTiles() {
       setSpriteVisible(item, x, LAYERS.REWARD, y - 0.1, itemw, itemh)
     }
     if (tileInfo.RewardScenarioID) {
-      const item = sprites.items['reward_ticket_r']
+      const item = sprites.items['reward_item']
       const itemw = 0.5
       const itemh = item.frame.h / item.frame.w * itemw
       setSpriteVisible(item, x, LAYERS.REWARD, y - 0.1, itemw, itemh)
@@ -398,24 +432,138 @@ function renderTiles() {
   }
 }
 function getRewardSprite(reward) {
+  const type = getRewardType(reward)
   const { id, str } = reward
-  if (id > 2100000 && id < 2200000) return 'reward_item' // nameplate
-  if (id > 7000000 && id < 8000000) return 'reward_music'
-  if (id > 1100000 && id < 1200000) return 'reward_item' // card
-  switch (id) {
-    case 4001004: return 'reward_ticket_ssr'
-    case 6000001: return 'reward_money'
-    case 12000001: return 'reward_kaika'
-    case 13000008: return 'reward_item' // 强化 中
-    case 13000012: return 'reward_item' // 强化 大
-    case 14000001: return 'reward_gift_1'
-    case 14000002: return 'reward_gift_2'
-    case 14000003: return 'reward_gift_3'
-    case 21000001: return 'reward_droplet'
-    default: {
-      console.log(reward)
+  switch (type) {
+    case 'nameplate': return 'reward_item' // nameplate
+    case 'music': return 'reward_music'
+    case 'card': return 'reward_item' // card
+    case 'money': return 'reward_money'
+    case 'kaika': return 'reward_kaika'
+    case 'droplet': return 'reward_droplet'
+    case 'item': return 'reward_item' // 强化 中
+    case 'item': return 'reward_item' // 强化 大
+    case 'levelup_item': return 'reward_item'
+    case 'ticket': {
+      switch (id) {
+        case 4001004: return 'reward_ticket_ssr'
+      }
       return 'reward_ticket_r'
     }
+    case 'gift': {
+      switch (id) {
+        case 14000001: return 'reward_gift_1'
+        case 14000002: return 'reward_gift_2'
+        case 14000003: return 'reward_gift_3'
+      }
+      return 'reward_ticket_r'
+    }
+    default: {
+      console.log(reward)
+      return 'reward_item'
+    }
+  }
+}
+function getRewardType(reward) {
+  const { id, str } = reward
+  const type = Math.floor(id / 1000000)
+  switch (type) {
+    case 1: return 'card'
+    case 2: return 'nameplate'
+    case 4: return 'ticket'
+    case 6: return 'money'
+    case 7: return 'music'
+    case 12: return 'kaika'
+    case 13: return 'levelup_item'
+    case 14: return 'gift'
+    case 21: return 'droplet'
+  }
+  return 'unknown'
+}
+const keyColor = ['', '红','蓝','黄','绿']
+const RewardTypes = {
+  'card': '新卡',
+  'nameplate': '名牌',
+  'ticket': '突破票',
+  'money': '金币',
+  'music': '新歌',
+  'kaika': '开花票',
+  'levelup_item': '强化道具',
+  'gift': '亲密度礼物',
+  'droplet': '水滴',
+
+  'unknown': '物品'
+}
+function renderTileInfo(pos) {
+  if (!pos) {
+    infoDiv.style.display = 'none'
+    return
+  }
+  const x = Math.round(pos.x), y = Math.round(-pos.z)
+  const tileInfo = tileInfoMap.find(i => i && i.CoordX === x && i.CoordY === y)
+  if (!tileInfo) {
+    return
+  }
+  calculateUnlockPoint(tileInfo)
+  infoDiv.style.display = ''
+  const text = []
+  text.push(`Tile @ (${x}, ${y})`)
+  text.push(`Tile ID: ${tileInfo.TileID}`)
+  text.push('')
+  text.push(`点数: ${tileInfo.Point}`)
+  text.push(`前置所需最少点数: ${tileInfo.unlockTotalPointBefore}`)
+  text.push('')
+  if (tileInfo.UnlockKeyID) {
+    text.push(`需要${keyColor[tileInfo.UnlockKeyID]}钥匙`)
+  }
+  if (tileInfo.RewardKeyID) {
+    text.push(`获得${keyColor[tileInfo.RewardKeyID]}钥匙`)
+  }
+  if (tileInfo.RewardScenarioID) {
+    text.push(`解锁剧情 ${tileInfo.RewardScenarioID}`)
+  }
+  if (tileInfo.Reward.id) {
+    const rewardType = getRewardType(tileInfo.Reward)
+    const rewardName = RewardTypes[rewardType]
+    text.push(`获得${rewardName}`)
+    text.push(`${tileInfo.Reward.str} (${tileInfo.Reward.id})`)
+  }
+  infoDiv.textContent = text.join('\n')
+}
+function calculateUnlockPoint(tile) {
+  if (tile.unlockTotalPointBefore) return
+  if (tile.UnlockConditionTileID.length === 0) {
+    tile.unlockTotalPointBefore = 0
+    tile.unlockTree = []
+    return
+  }
+  if (!tile.UnlockKeyID) {
+    const conditionTiles = tile.UnlockConditionTileID.map(i => tileInfoMap[i])
+    conditionTiles.map(calculateUnlockPoint)
+    conditionTiles.sort((a, b) => a.unlockTotalPointBefore - b.unlockTotalPointBefore)
+    const leastPointConditionTile = conditionTiles[0]
+    tile.unlockTotalPointBefore = leastPointConditionTile.unlockTotalPointBefore + leastPointConditionTile.Point
+    tile.unlockTree = leastPointConditionTile.unlockTree.concat([leastPointConditionTile.TileID])
+    return
+  } else {
+    // 这一格是锁，需要计算钥匙的最短树和锁前置的最短树，合并后计算总和
+    const conditionTiles = tile.UnlockConditionTileID.map(i => tileInfoMap[i])
+    conditionTiles.map(calculateUnlockPoint)
+    conditionTiles.sort((a, b) => a.unlockTotalPointBefore - b.unlockTotalPointBefore)
+    const leastPointConditionTile = conditionTiles[0]
+    const keyTile = tileInfoMap.find(i => i && i.RewardKeyID === tile.UnlockKeyID)
+    calculateUnlockPoint(keyTile)
+    const treeCombined = new Set()
+    leastPointConditionTile.unlockTree.forEach(i => treeCombined.add(i))
+    keyTile.unlockTree.forEach(i => treeCombined.add(i))
+    let totalUnlockPoint = keyTile.Point
+    for (const i of treeCombined) {
+      const tile = tileInfoMap[i]
+      if (tile) totalUnlockPoint += tile.Point
+    }
+    tile.unlockTotalPointBefore = totalUnlockPoint
+    tile.unlockTree = Array.from(treeCombined)
+    return
   }
 }
 
