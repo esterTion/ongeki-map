@@ -14,6 +14,7 @@ import {
   MeshBasicMaterial,
   OrthographicCamera,
   InstancedMesh,
+  Mesh,
   Shape,
   ShapeGeometry,
   CanvasTexture,
@@ -26,6 +27,12 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 // import Stats from 'three/addons/libs/stats.module.js';
 // import THREEx from './threex.rendererstats.js';
 
+Set.prototype.union ??= function (set) {
+  const result = new Set(this);
+  for (const item of set) result.add(item);
+  return result;
+}
+
 // createElement
 function _(e,t,i){var a=null;if("text"===e)return document.createTextNode(t);a=document.createElement(e);for(var n in t)if("style"===n)for(var o in t.style)a.style[o]=t.style[o];else if("className"===n)a.className=t[n];else if("event"===n)for(var o in t.event)a.addEventListener(o,t.event[o]);else a.setAttribute(n,t[n]);if(i)if("string"==typeof i)a.innerHTML=i;else if(Array.isArray(i))for(var l=0;l<i.length;l++)null!=i[l]&&a.appendChild(i[l]);return a;}
 
@@ -36,13 +43,14 @@ ktx2Loader.init();
 const ASSET_PATH = './assets';
 
 const LAYERS = {
+  SELECTBOX: -0.2,
   ARROW: -0.1,
   TILE: 0,
   REWARD: 0.1,
   POINT_TEXT: 0.2,
 };
 
-let camera, scene, renderer, controls;
+let camera, scene, renderer, controls, selectBox;
 
 let requestRender = true;
 function requestRenderLoop(now) {
@@ -60,16 +68,6 @@ const sprites = {};
 
 const raycaster = new Raycaster();
 const mouse = new Vector2(1, 1);
-window.addEventListener('pointermove', e => {
-  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-});
-window.addEventListener('touchstart', e => {
-  if (e.touches.length > 0) {
-    mouse.x = (e.touches[0].clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(e.touches[0].clientY / window.innerHeight) * 2 + 1;
-  }
-});
 
 const loadingItem = {};
 function getLoadingDescription(adds, removes) {
@@ -115,6 +113,12 @@ function init() {
   document.body.appendChild(renderer.domElement);
   document.getElementById('loading').remove();
 
+  renderer.domElement.addEventListener('pointerdown', e => {
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    checkIntersection();
+  });
+
   ktx2Loader.detectSupport(renderer);
   camera.position.set(0,50,0);
 
@@ -122,7 +126,7 @@ function init() {
   controls.minDistance = 0.5;
   controls.maxDistance = 20;
   controls.zoomSpeed = 3;
-  controls.panSpeed = 1;
+  controls.panSpeed = 1.5;
   controls.enableDamping = false;
   controls.enableRotate = false;
   controls.autoRotate = false;
@@ -165,6 +169,40 @@ function init() {
       instance: arrow,
       texture: gradentTexture,
     }};
+  }
+  {
+    const shape = new Shape;
+    const arcR = 0.3, arcR2 = 0.5, w = 0.5, h = 0.4;
+    shape.moveTo(w, h - arcR);
+    shape.arc(-arcR, 0, arcR, 0, Math.PI / 2);
+    shape.lineTo(w - arcR, h - arcR + arcR2);
+    shape.arc(0, -arcR2, arcR2, Math.PI / 2, 0, true);
+    shape.lineTo(w, h - arcR);
+
+    shape.moveTo(-w + arcR, h);
+    shape.arc(0, -arcR, arcR, Math.PI / 2, Math.PI);
+    shape.lineTo(-w + arcR - arcR2, h - arcR);
+    shape.arc(arcR2, 0, arcR2, Math.PI, Math.PI / 2, true);
+    shape.lineTo(-w + arcR, h);
+
+    shape.moveTo(-w, -h + arcR);
+    shape.arc(arcR, 0, arcR, Math.PI, Math.PI * 3 / 2);
+    shape.lineTo(-w + arcR, -h + arcR - arcR2);
+    shape.arc(0, arcR2, arcR2, Math.PI * 3 / 2, Math.PI, true);
+    shape.lineTo(-w, -h + arcR);
+
+    shape.moveTo(w - arcR, -h);
+    shape.arc(0, arcR, arcR, Math.PI * 3 / 2, Math.PI * 2);
+    shape.lineTo(w - arcR + arcR2, -h + arcR);
+    shape.arc(-arcR2, 0, arcR2, Math.PI * 2, Math.PI * 3 / 2, true);
+    shape.lineTo(w - arcR, -h);
+
+    const material = new MeshBasicMaterial({color: 0x3cbbcf, transparent: true});
+    selectBox = new Mesh(new ShapeGeometry(shape), material);
+    selectBox.position.set(0, -1, 0);
+    selectBox.visible = false;
+    selectBox.lookAt(0, 0, 0);
+    scene.add(selectBox);
   }
 }
 
@@ -240,10 +278,14 @@ function updateSprite(sprite) {
   sprite.computeBoundingSphere();
 }
 
+let selectTime = 0;
 function render(now) {
   sprites.arrow.arrow.texture.offset.x = -now / 2000;
+  {
+    const scale = (Math.cos((now - selectTime) / 200) + 1) * 0.04 + 0.55;
+    selectBox.scale.set(scale, scale, scale);
+  }
   renderer.render(scene, camera);
-  checkIntersection();
   // rendererStats.update(renderer);
   // stats.update();
 }
@@ -285,18 +327,18 @@ function initMaps() {
     20: '期末試験編',
   };
 
-  const characterSelect = document.createElement('select');
-  characterSelect.setAttribute('style', 'position:fixed;top:30px;left:10px');
+  const mapSelect = document.createElement('select');
+  mapSelect.setAttribute('style', 'position:fixed;top:30px;left:10px');
   for (const mapId in maps) {
     const option = document.createElement('option');
     option.value = mapId;
     option.textContent = maps[mapId];
-    characterSelect.appendChild(option);
+    mapSelect.appendChild(option);
   }
-  characterSelect.value = 20;
-  document.body.appendChild(characterSelect);
-  characterSelect.addEventListener('change', () => {
-    const mapId = characterSelect.value;
+  mapSelect.value = 20;
+  document.body.appendChild(mapSelect);
+  mapSelect.addEventListener('change', () => {
+    const mapId = mapSelect.value;
     loadMapInfo(mapId);
   });
   loadMapInfo(20);
@@ -326,15 +368,24 @@ async function loadMapInfo(id) {
   if (loadingSession !== currentLoadSession) return;
   tileInfoMap.length = 0;
 
+  loadStoredState();
+  finishedTiles[id] = finishedTiles[id] || new Set();
+  finishedTiles.current = finishedTiles[id];
+
   tiles.forEach(tile => {
     const tileInfo = parseTileInfo(tile);
     const tileId = tileInfo.TileID;
     tileInfoMap[tileId] = tileInfo;
   });
   renderTiles();
+  renderTileInfo(null);
 
   console.log('tileInfoMap', tileInfoMap);
-  const startingTile = tileInfoMap[1];
+  const startingTile = finishedTiles.current.size ? (() => {
+    const list = Array.from(finishedTiles.current);
+    list.sort((b, a) => tileInfoMap[a].unlockTotalPointBefore + tileInfoMap[a].Point - (tileInfoMap[b].unlockTotalPointBefore + tileInfoMap[b].Point));
+    return tileInfoMap[list[0]];
+  })() : tileInfoMap[1];
   camera.position.set(startingTile.CoordX, 50, -startingTile.CoordY);
   controls.target.set(startingTile.CoordX, 0, -startingTile.CoordY);
   controls.update();
@@ -369,7 +420,9 @@ function renderTiles() {
   resetSprites();
   const filterType = rewardTypeSelect.value;
   const tilesFiltered = [];
-  const filteringColor = new Color(filterType === 'all' ? '#FFFFFF' : '#777777');
+  const colorBright = new Color('#FFFFFF');
+  const colorDim = new Color('#AAAAAA');
+  const colorDark = new Color('#444444');
   for (const tileInfo of tileInfoMap) {
     if (!tileInfo) continue;
 
@@ -378,15 +431,15 @@ function renderTiles() {
                     || (tileInfo.Reward.id && filterType === getRewardType(tileInfo.Reward));
     // 格子
     const hasContent = tileInfo.Reward.id !== 0
-                    || tileInfo.UnlockKeyID !== 0
                     || tileInfo.RewardKeyID !== 0
                     || tileInfo.RewardScenarioID !== 0;
-    const usingTile = sprites.tiles[hasContent ? 'tile_with_item' : 'tile_empty'];
+    const usingTile = sprites.tiles[finishedTiles.current.has(tileInfo.TileID) ? 'tile_visited' : hasContent ? 'tile_with_item' : 'tile_empty'];
     const x = tileInfo.CoordX;
     const y = -tileInfo.CoordY;
     const w = 0.5;
     const h = usingTile.frame.h / usingTile.frame.w * w;
-    usingTile.instance.setColorAt(usingTile.instance.count, filteringColor);
+    const tileTint = filterType !== 'all' ? colorDark : finishedTiles.current.has(tileInfo.TileID) ? colorBright : colorDim;
+    usingTile.instance.setColorAt(usingTile.instance.count, tileTint);
     usingTile.instance.instanceColor.needsUpdate = true;
     setSpriteVisible(usingTile, x, LAYERS.TILE, y, w, h);
     tileInfo.usingTile = usingTile.instance;
@@ -426,7 +479,7 @@ function renderTiles() {
 
       matrix.compose(arrowStartPosition, rotation, new Vector3(scale - 1, 0.5, 1));
       arrow.setMatrixAt(idx, matrix);
-      arrow.setColorAt(idx, filteringColor);
+      arrow.setColorAt(idx, tileTint);
       arrow.instanceColor.needsUpdate = true;
       updateSprite(arrow);
       tileInfo.unlockArrows.push(idx);
@@ -471,23 +524,21 @@ function renderTiles() {
     }
   }
 
-  const tilesToBrighten = new Set();
+  let tilesToBrighten = new Set();
   for (const tile of tilesFiltered) {
-    tilesToBrighten.add(tile.TileID);
-    for (const id of tile.unlockTree) {
-      tilesToBrighten.add(id);
-    }
+    tilesToBrighten = tilesToBrighten.union(tile.unlockTree).union(new Set([tile.TileID]));
   }
   for (const tile of tilesToBrighten) {
     const tileInfo = tileInfoMap[tile];
     if (!tileInfo) continue;
     const usingTile = tileInfo.usingTile;
     const usingTileId = tileInfo.usingTileId;
-    usingTile.setColorAt(usingTileId, new Color('#FFFFFF'));
+    const tileTint = finishedTiles.current.has(tileInfo.TileID) ? colorBright : colorDim;
+    usingTile.setColorAt(usingTileId, tileTint);
     usingTile.instanceColor.needsUpdate = true;
     for (const arrowId of tileInfo.unlockArrows) {
       const arrow = sprites.arrow.arrow.instance;
-      arrow.setColorAt(arrowId, new Color('#FFFFFF'));
+      arrow.setColorAt(arrowId, tileTint);
       arrow.instanceColor.needsUpdate = true;
     }
   }
@@ -553,9 +604,46 @@ const RewardTypes = {
 
   'unknown': '物品'
 };
+
+const finishedTiles = {}
+function loadStoredState() {
+  const storedState = localStorage.getItem('finishedTiles');
+  if (storedState) {
+    const parsedState = JSON.parse(storedState);
+    for (const mapId in parsedState) {
+      const set = new Set(parsedState[mapId]);
+      finishedTiles[mapId] = set;
+    }
+  }
+}
+function saveStoredState() {
+  const store = {}
+  for (const mapId in finishedTiles) {
+    if (mapId === 'current') continue;
+    const set = finishedTiles[mapId];
+    store[mapId] = Array.from(set);
+  }
+  localStorage.setItem('finishedTiles', JSON.stringify(store));
+}
+
+let selectedTileId = null;
+function renderMapInfo() {
+  const totalPoint = tileInfoMap.reduce((acc, i) => acc + (i && i.Point || 0), 0);
+  const finishedPoint = tileInfoMap.filter(i => i && finishedTiles.current.has(i.TileID)).reduce((acc, i) => acc + i.Point, 0);
+  const text = [];
+  text.push(`已完成点数：${finishedPoint}`);
+  text.push(`剩余点数：${totalPoint - finishedPoint}`);
+  text.push(`完成度：${(finishedPoint / totalPoint * 100).toFixed(2)}%`);
+  text.push('');
+  text.push(`点击格子查看信息`);
+  infoDiv.textContent = text.join('\n');
+}
 function renderTileInfo(pos) {
+  infoDiv.style.display = '';
   if (!pos) {
-    infoDiv.style.display = 'none';
+    renderMapInfo();
+    selectedTileId = null;
+    selectBox.visible = false;
     return;
   }
   const x = Math.round(pos.x), y = Math.round(-pos.z);
@@ -563,6 +651,25 @@ function renderTileInfo(pos) {
   if (!tileInfo) {
     return;
   }
+  if (selectedTileId === tileInfo.TileID) {
+    if (finishedTiles.current.has(selectedTileId)) {
+      finishedTiles.current.delete(selectedTileId);
+      Array.from(tileInfoMap.values()).forEach(i => {
+        if (i && i.unlockTree.has(selectedTileId)) {
+          finishedTiles.current.delete(i.TileID);
+        }
+      })
+    } else {
+      tileInfo.unlockTree.forEach(i => finishedTiles.current.add(i));
+      finishedTiles.current.add(selectedTileId);
+    }
+    saveStoredState();
+    renderTiles();
+  }
+  selectBox.visible = true;
+  selectBox.position.set(tileInfo.CoordX, LAYERS.SELECTBOX, -tileInfo.CoordY);
+  selectTime = performance.now();
+  selectedTileId = tileInfo.TileID;
   calculateUnlockPoint(tileInfo);
   infoDiv.style.display = '';
   const text = [];
@@ -570,7 +677,8 @@ function renderTileInfo(pos) {
   text.push(`Tile ID: ${tileInfo.TileID}`);
   text.push('');
   text.push(`点数: ${tileInfo.Point}`);
-  text.push(`前置所需最少点数: ${tileInfo.unlockTotalPointBefore}`);
+  const remainPoint = tileInfoMap.filter(i => i && (i === tileInfo || tileInfo.unlockTree.has(i.TileID)) && !finishedTiles.current.has(i.TileID)).reduce((acc, i) => acc + i.Point, 0);
+  text.push(`解锁需要点数: ${remainPoint}`);
   text.push('');
   if (tileInfo.UnlockKeyID) {
     text.push(`需要${keyColor[tileInfo.UnlockKeyID]}钥匙`);
@@ -593,7 +701,7 @@ function calculateUnlockPoint(tile) {
   if (tile.unlockTotalPointBefore) return;
   if (tile.UnlockConditionTileID.length === 0) {
     tile.unlockTotalPointBefore = 0;
-    tile.unlockTree = [];
+    tile.unlockTree = new Set();
     return;
   }
   if (!tile.UnlockKeyID) {
@@ -602,7 +710,7 @@ function calculateUnlockPoint(tile) {
     conditionTiles.sort((a, b) => a.unlockTotalPointBefore - b.unlockTotalPointBefore);
     const leastPointConditionTile = conditionTiles[0];
     tile.unlockTotalPointBefore = leastPointConditionTile.unlockTotalPointBefore + leastPointConditionTile.Point;
-    tile.unlockTree = leastPointConditionTile.unlockTree.concat([leastPointConditionTile.TileID]);
+    tile.unlockTree = leastPointConditionTile.unlockTree.union(new Set([leastPointConditionTile.TileID]));
     return;
   } else {
     // 这一格是锁，需要计算钥匙的最短树和锁前置的最短树，合并后计算总和
@@ -612,18 +720,16 @@ function calculateUnlockPoint(tile) {
     const leastPointConditionTile = conditionTiles[0];
     const keyTile = tileInfoMap.find(i => i && i.RewardKeyID === tile.UnlockKeyID);
     calculateUnlockPoint(keyTile);
-    const treeCombined = new Set();
-    treeCombined.add(keyTile.TileID);
-    treeCombined.add(leastPointConditionTile.TileID);
-    leastPointConditionTile.unlockTree.forEach(i => treeCombined.add(i));
-    keyTile.unlockTree.forEach(i => treeCombined.add(i));
+    const treeCombined = leastPointConditionTile.unlockTree
+      .union(keyTile.unlockTree)
+      .union(new Set([keyTile.TileID, leastPointConditionTile.TileID]));
     let totalUnlockPoint = 0;
     for (const i of treeCombined) {
       const tile = tileInfoMap[i];
       if (tile) totalUnlockPoint += tile.Point;
     }
     tile.unlockTotalPointBefore = totalUnlockPoint;
-    tile.unlockTree = Array.from(treeCombined);
+    tile.unlockTree = treeCombined;
     return;
   }
 }
