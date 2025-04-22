@@ -113,11 +113,17 @@ function init() {
   document.body.appendChild(renderer.domElement);
   document.getElementById('loading').remove();
 
-  renderer.domElement.addEventListener('pointerdown', e => {
-    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-    checkIntersection();
-  });
+  {
+    let moved = false;
+    renderer.domElement.addEventListener('pointerdown', e => moved = false);
+    renderer.domElement.addEventListener('pointermove', e => moved = true);
+    renderer.domElement.addEventListener('pointerup', e => {
+      if (moved) return;
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      checkIntersection();
+    });
+  }
 
   ktx2Loader.detectSupport(renderer);
   camera.position.set(0,50,0);
@@ -675,6 +681,7 @@ function renderTileInfo(pos) {
   const text = [];
   text.push(`Tile @ (${x}, ${y})`);
   text.push(`Tile ID: ${tileInfo.TileID}`);
+  text.push('再次点击格子标记完成状态');
   text.push('');
   text.push(`点数: ${tileInfo.Point}`);
   const remainPoint = tileInfoMap.filter(i => i && (i === tileInfo || tileInfo.unlockTree.has(i.TileID)) && !finishedTiles.current.has(i.TileID)).reduce((acc, i) => acc + i.Point, 0);
