@@ -27,6 +27,12 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 // import Stats from 'three/addons/libs/stats.module.js';
 // import THREEx from './threex.rendererstats.js';
 
+const maps = {
+  21: '修学旅行編',
+  20: '期末試験編',
+};
+const initialMapId = 21;
+
 Set.prototype.union ??= function (set) {
   const result = new Set(this);
   for (const item of set) result.add(item);
@@ -330,10 +336,6 @@ function onWindowResize() {
 }
 
 function initMaps() {
-  const maps = {
-    20: '期末試験編',
-  };
-
   const mapSelect = document.createElement('select');
   mapSelect.setAttribute('style', 'position:fixed;top:30px;left:10px');
   for (const mapId in maps) {
@@ -342,13 +344,13 @@ function initMaps() {
     option.textContent = maps[mapId];
     mapSelect.appendChild(option);
   }
-  mapSelect.value = 20;
+  mapSelect.value = initialMapId;
   document.body.appendChild(mapSelect);
   mapSelect.addEventListener('change', () => {
     const mapId = mapSelect.value;
     loadMapInfo(mapId);
   });
-  loadMapInfo(20);
+  loadMapInfo(initialMapId);
 
   rewardTypeSelect.appendChild(_('option', { value: 'story' }, [_('text', '剧情')]));
   for (const v in RewardTypes) {
@@ -382,7 +384,14 @@ async function loadMapInfo(id) {
   tiles.forEach(tile => {
     const tileInfo = parseTileInfo(tile);
     const tileId = tileInfo.TileID;
+    tileInfo.CanUnlockTileIDs = [];
     tileInfoMap[tileId] = tileInfo;
+  });
+  Object.values(tileInfoMap).forEach(i => {
+    i.UnlockConditionTileID.forEach(j => {
+      const t = tileInfoMap[j];
+      if (t) t.CanUnlockTileIDs.push(i.TileID);
+    });
   });
   renderTiles();
   renderTileInfo(null);
@@ -482,9 +491,10 @@ function renderTiles() {
       const rotation = new Quaternion();
       rotation.setFromUnitVectors(new Vector3(0, 0, 1), arrowDirection);
       rotation.multiply(new Quaternion().setFromEuler(new Euler(-Math.PI / 2, 0, -Math.PI / 2, 'XYZ')));
-      const arrowStartPosition = conditionTilePosition.add(arrowDirection.multiplyScalar(0.5));
+      const arrowPadding = scale <= 1 ? 0.3 : 0.5;
+      const arrowStartPosition = conditionTilePosition.add(arrowDirection.multiplyScalar(arrowPadding));
 
-      matrix.compose(arrowStartPosition, rotation, new Vector3(scale - 1, 0.5, 1));
+      matrix.compose(arrowStartPosition, rotation, new Vector3(scale - arrowPadding*2, arrowPadding, 1));
       arrow.setMatrixAt(idx, matrix);
       arrow.setColorAt(idx, tileTint);
       arrow.instanceColor.needsUpdate = true;
@@ -561,6 +571,8 @@ function getRewardSprite(reward) {
   case 'kaika': return 'reward_kaika';
   case 'droplet': return 'reward_droplet';
   case 'levelup_item': return 'reward_item';
+  case 'medal': return 'reward_medal';
+  case 'ssr_gacha_ticket': return 'reward_ssr_gacha_ticket';
   case 'ticket': {
     switch (id) {
     case 4001004: return 'reward_ticket_ssr';
@@ -576,7 +588,7 @@ function getRewardSprite(reward) {
     return 'reward_ticket_r';
   }
   default: {
-    console.log(reward);
+    console.log(reward, type, Math.floor(reward.id / 1000000));
     return 'reward_item';
   }
   }
@@ -593,6 +605,8 @@ function getRewardType(reward) {
   case 12: return 'kaika';
   case 13: return 'levelup_item';
   case 14: return 'gift';
+  case 15: return 'ssr_gacha_ticket';
+  case 18: return 'medal';
   case 21: return 'droplet';
   }
   return 'unknown';
@@ -608,6 +622,8 @@ const RewardTypes = {
   'levelup_item': '强化道具',
   'gift': '亲密度礼物',
   'droplet': '水滴',
+  'medal': '奖章',
+  'ssr_gacha_ticket': 'SSR确定书',
 
   'unknown': '物品'
 };
@@ -705,27 +721,31 @@ function renderTileInfo(pos) {
   }
   infoDiv.textContent = text.join('\n');
 }
-function calculateUnlockPoint(tile) {
+function calculateUnlockPoint(tile, visitedList = []) {
   if (tile.unlockTotalPointBefore) return;
   if (tile.UnlockConditionTileID.length === 0) {
     tile.unlockTotalPointBefore = 0;
     tile.unlockTree = new Set();
     return;
   }
+  if (visitedList.includes(tile.TileID)) {
+    return;
+  }
+  visitedList.push(tile.TileID);
   if (!tile.UnlockKeyID) {
     const conditionTiles = tile.UnlockConditionTileID.map(i => tileInfoMap[i]);
-    conditionTiles.map(calculateUnlockPoint);
+    conditionTiles.map(t => calculateUnlockPoint(t, visitedList));
     conditionTiles.sort((a, b) => a.unlockTotalPointBefore - b.unlockTotalPointBefore);
-    const leastPointConditionTile = conditionTiles[0];
+    const leastPointConditionTile = conditionTiles.filter(i => i.unlockTotalPointBefore !== undefined)[0];
     tile.unlockTotalPointBefore = leastPointConditionTile.unlockTotalPointBefore + leastPointConditionTile.Point;
     tile.unlockTree = leastPointConditionTile.unlockTree.union(new Set([leastPointConditionTile.TileID]));
     return;
   } else {
     // 这一格是锁，需要计算钥匙的最短树和锁前置的最短树，合并后计算总和
     const conditionTiles = tile.UnlockConditionTileID.map(i => tileInfoMap[i]);
-    conditionTiles.map(calculateUnlockPoint);
+    conditionTiles.map(t => calculateUnlockPoint(t, visitedList));
     conditionTiles.sort((a, b) => a.unlockTotalPointBefore - b.unlockTotalPointBefore);
-    const leastPointConditionTile = conditionTiles[0];
+    const leastPointConditionTile = conditionTiles.filter(i => i.unlockTotalPointBefore !== undefined)[0];
     const keyTile = tileInfoMap.find(i => i && i.RewardKeyID === tile.UnlockKeyID);
     calculateUnlockPoint(keyTile);
     const treeCombined = leastPointConditionTile.unlockTree
