@@ -361,6 +361,7 @@ function initMaps() {
 
 let loadingSession = null;
 const tileInfoMap = [];
+const mutualUnlockMap = {};
 async function loadMapInfo(id) {
   const currentLoadSession = Symbol('load');
   loadingSession = currentLoadSession;
@@ -387,10 +388,19 @@ async function loadMapInfo(id) {
     tileInfo.CanUnlockTileIDs = [];
     tileInfoMap[tileId] = tileInfo;
   });
+  for (let id in mutualUnlockMap) {
+    delete mutualUnlockMap[id];
+  }
   Object.values(tileInfoMap).forEach(i => {
+    mutualUnlockMap[i.TileID] = {};
     i.UnlockConditionTileID.forEach(j => {
       const t = tileInfoMap[j];
-      if (t) t.CanUnlockTileIDs.push(i.TileID);
+      if (t) {
+        t.CanUnlockTileIDs.push(i.TileID);
+        if (t.UnlockConditionTileID.includes(i.TileID)) {
+          mutualUnlockMap[i.TileID][j] = true;
+        }
+      }
     });
   });
   renderTiles();
@@ -492,9 +502,15 @@ function renderTiles() {
       rotation.setFromUnitVectors(new Vector3(0, 0, 1), arrowDirection);
       rotation.multiply(new Quaternion().setFromEuler(new Euler(-Math.PI / 2, 0, -Math.PI / 2, 'XYZ')));
       const arrowPadding = scale <= 1 ? 0.3 : 0.5;
-      const arrowStartPosition = conditionTilePosition.add(arrowDirection.multiplyScalar(arrowPadding));
 
-      matrix.compose(arrowStartPosition, rotation, new Vector3(scale - arrowPadding*2, arrowPadding, 1));
+      // 双向解锁箭头置于中点
+      if (mutualUnlockMap[tileInfo.TileID][unlockId]) {
+        const mutualArrowStartPosition = new Vector3().addVectors(conditionTilePosition, arrowDirection.multiplyScalar(scale / 2));
+        matrix.compose(mutualArrowStartPosition, rotation, new Vector3(scale/2 - arrowPadding, 0.5, 1));
+      } else {
+        const arrowStartPosition = new Vector3().addVectors(conditionTilePosition, arrowDirection.multiplyScalar(arrowPadding));
+        matrix.compose(arrowStartPosition, rotation, new Vector3(scale - arrowPadding*2, 0.5, 1));
+      }
       arrow.setMatrixAt(idx, matrix);
       arrow.setColorAt(idx, tileTint);
       arrow.instanceColor.needsUpdate = true;
