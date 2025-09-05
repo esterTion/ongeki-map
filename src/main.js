@@ -403,6 +403,7 @@ async function loadMapInfo(id) {
       }
     });
   });
+  calculateUnlockPointFromStart();
   renderTiles();
   renderTileInfo(null);
 
@@ -470,7 +471,6 @@ function renderTiles() {
     setSpriteVisible(usingTile, x, LAYERS.TILE, y, w, h);
     tileInfo.usingTile = usingTile.instance;
     tileInfo.usingTileId = usingTile.instance.count - 1;
-    calculateUnlockPoint(tileInfo);
     if (filterType !== 'all' && showReward) tilesFiltered.push(tileInfo);
 
     // 格子数
@@ -702,6 +702,7 @@ function renderTileInfo(pos) {
       tileInfo.unlockTree.forEach(i => finishedTiles.current.add(i));
       finishedTiles.current.add(selectedTileId);
     }
+    calculateUnlockPointFromStart();
     saveStoredState();
     renderTiles();
   }
@@ -709,7 +710,6 @@ function renderTileInfo(pos) {
   selectBox.position.set(tileInfo.CoordX, LAYERS.SELECTBOX, -tileInfo.CoordY);
   selectTime = performance.now();
   selectedTileId = tileInfo.TileID;
-  calculateUnlockPoint(tileInfo);
   infoDiv.style.display = '';
   const text = [];
   text.push(`Tile @ (${x}, ${y})`);
@@ -737,44 +737,63 @@ function renderTileInfo(pos) {
   }
   infoDiv.textContent = text.join('\n');
 }
-function calculateUnlockPoint(tile, visitedList = []) {
-  if (tile.unlockTotalPointBefore) return;
+
+function calculateUnlockPointQueue(tiles) {
+  const tileId = tiles.shift();
+  const tile = tileInfoMap[tileId];
+  if (!tile) return;
   if (tile.UnlockConditionTileID.length === 0) {
     tile.unlockTotalPointBefore = 0;
     tile.unlockTree = new Set();
+    tile.CanUnlockTileIDs.forEach(i => {
+      tiles.push(i);
+    });
     return;
   }
-  if (visitedList.includes(tile.TileID)) {
-    return;
-  }
-  visitedList.push(tile.TileID);
-  if (!tile.UnlockKeyID) {
-    const conditionTiles = tile.UnlockConditionTileID.map(i => tileInfoMap[i]);
-    conditionTiles.map(t => calculateUnlockPoint(t, visitedList));
-    conditionTiles.sort((a, b) => a.unlockTotalPointBefore - b.unlockTotalPointBefore);
-    const leastPointConditionTile = conditionTiles.filter(i => i.unlockTotalPointBefore !== undefined)[0];
-    tile.unlockTotalPointBefore = leastPointConditionTile.unlockTotalPointBefore + leastPointConditionTile.Point;
-    tile.unlockTree = leastPointConditionTile.unlockTree.union(new Set([leastPointConditionTile.TileID]));
-    return;
-  } else {
-    // 这一格是锁，需要计算钥匙的最短树和锁前置的最短树，合并后计算总和
-    const conditionTiles = tile.UnlockConditionTileID.map(i => tileInfoMap[i]);
-    conditionTiles.map(t => calculateUnlockPoint(t, visitedList));
-    conditionTiles.sort((a, b) => a.unlockTotalPointBefore - b.unlockTotalPointBefore);
-    const leastPointConditionTile = conditionTiles.filter(i => i.unlockTotalPointBefore !== undefined)[0];
-    const keyTile = tileInfoMap.find(i => i && i.RewardKeyID === tile.UnlockKeyID);
-    calculateUnlockPoint(keyTile);
-    const treeCombined = leastPointConditionTile.unlockTree
-      .union(keyTile.unlockTree)
-      .union(new Set([keyTile.TileID, leastPointConditionTile.TileID]));
-    let totalUnlockPoint = 0;
-    for (const i of treeCombined) {
-      const tile = tileInfoMap[i];
-      if (tile) totalUnlockPoint += tile.Point;
+  let unlockPoint = Infinity;
+  let unlockTree = null;
+  for (let prevId of tile.UnlockConditionTileID) {
+    const prevTile = tileInfoMap[prevId];
+    if (!prevTile || prevTile.unlockTotalPointBefore === undefined) {
+      continue;
     }
-    tile.unlockTotalPointBefore = totalUnlockPoint;
-    tile.unlockTree = treeCombined;
-    return;
+    const point = finishedTiles.current.has(prevId) ? 0 : (prevTile.unlockTotalPointBefore + prevTile.Point);
+    if (point < unlockPoint) {
+      unlockPoint = point;
+      unlockTree = prevTile.unlockTree.union(new Set([prevTile.TileID]));
+    }
+  }
+  if (tile.UnlockKeyID) {
+    const keyTile = tileInfoMap.find(i => i && i.RewardKeyID === tile.UnlockKeyID);
+    if (!keyTile) throw new Error('找不到钥匙格子', tile);
+    if (keyTile.unlockTotalPointBefore === undefined) {
+      tiles.push(tileId);
+      return;
+    }
+    unlockPoint = (finishedTiles.current.has(keyTile.TileID) ? 0 : (keyTile.unlockTotalPointBefore + keyTile.Point)) + unlockPoint;
+    unlockTree = keyTile.unlockTree.union(new Set([keyTile.TileID])).union(unlockTree);
+  }
+  if (tile.unlockTotalPointBefore === undefined || unlockPoint < tile.unlockTotalPointBefore) {
+    tile.unlockTotalPointBefore = unlockPoint;
+    tile.unlockTree = unlockTree;
+    tile.CanUnlockTileIDs.forEach(i => {
+      tiles.push(i);
+    });
+  }
+  if (finishedTiles.current.has(tile.TileID)) {
+    tile.unlockTotalPointBefore = 0;
+  }
+}
+
+function calculateUnlockPointFromStart() {
+  const tiles = [1];
+  for (let tile of tileInfoMap) {
+    if (!tile) continue;
+    delete tile.unlockTotalPointBefore;
+    delete tile.unlockTree;
+  }
+  while (tiles.length) {
+    calculateUnlockPointQueue(tiles);
   }
 }
 
