@@ -50,7 +50,9 @@ const ASSET_PATH = './assets';
 
 const LAYERS = {
   SELECTBOX: -0.2,
+  BELOW_ARROW: -0.15,
   ARROW: -0.1,
+  ABOVE_ARROW: -0.05,
   TILE: 0,
   REWARD: 0.1,
   POINT_TEXT: 0.2,
@@ -161,9 +163,9 @@ function init() {
     gradient.addColorStop(1, 'rgba(100,100,100,0.7)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 256, 256);
-    const gradentTexture = new CanvasTexture(canvas);
-    gradentTexture.wrapS = RepeatWrapping;
-    gradentTexture.wrapT = RepeatWrapping;
+    const gradientTexture = new CanvasTexture(canvas);
+    gradientTexture.wrapS = RepeatWrapping;
+    gradientTexture.wrapT = RepeatWrapping;
     const shape = new Shape;
     ([
       [0, 0.2],
@@ -174,14 +176,22 @@ function init() {
       [0.5, -0.2],
       [0, -0.2],
     ]).forEach(i => shape.lineTo(i[0], i[1]));
-    const material = new MeshBasicMaterial({color: 0x3cbbcf, transparent: true, map: gradentTexture});
+    const material = new MeshBasicMaterial({color: 0x3cbbcf, map: gradientTexture});
     const arrow = new InstancedMesh(new ShapeGeometry(shape), material, 1024);
     arrow.count = 0;
     scene.add(arrow);
     sprites.arrow = {arrow:{
       instance: arrow,
-      texture: gradentTexture,
+      texture: gradientTexture,
     }};
+    const whiteMaterial = new MeshBasicMaterial({color: 0xFFFFFF, transparent: true, opacity: 1});
+    const whiteArrow = new InstancedMesh(new ShapeGeometry(shape), whiteMaterial, 1024);
+    whiteArrow.count = 0;
+    scene.add(whiteArrow);
+    sprites.arrow.arrowWhite = {
+      instance: whiteArrow,
+      material: whiteMaterial,
+    };
   }
   {
     const shape = new Shape;
@@ -294,6 +304,7 @@ function updateSprite(sprite) {
 let selectTime = 0;
 function render(now) {
   sprites.arrow.arrow.texture.offset.x = -now / 2000;
+  sprites.arrow.arrowWhite.material.opacity = Math.max(0, Math.sin(now / 500) * 0.5 + 0.2);
   {
     const scale = (Math.cos((now - selectTime) / 200) + 1) * 0.04 + 0.55;
     selectBox.scale.set(scale, scale, scale);
@@ -362,6 +373,7 @@ function initMaps() {
 let loadingSession = null;
 const tileInfoMap = [];
 const mutualUnlockMap = {};
+const unlockArrowMap = {};
 async function loadMapInfo(id) {
   const currentLoadSession = Symbol('load');
   loadingSession = currentLoadSession;
@@ -490,7 +502,9 @@ function renderTiles() {
       const unlockX = unlockTile.CoordX;
       const unlockY = -unlockTile.CoordY;
       const arrow = sprites.arrow.arrow.instance;
+      const arrowWhite = sprites.arrow.arrowWhite.instance;
       const idx = arrow.count++;
+      arrowWhite.count++;
       const matrix = new Matrix4;
 
       const conditionTilePosition = new Vector3(unlockX, LAYERS.ARROW, unlockY);
@@ -515,7 +529,13 @@ function renderTiles() {
       arrow.setColorAt(idx, tileTint);
       arrow.instanceColor.needsUpdate = true;
       updateSprite(arrow);
+      const whiteArrowPosition = new Vector3().setFromMatrixPosition(matrix);
+      whiteArrowPosition.y = LAYERS.BELOW_ARROW;
+      matrix.setPosition(whiteArrowPosition);
+      arrowWhite.setMatrixAt(idx, matrix);
+      updateSprite(arrowWhite);
       tileInfo.unlockArrows.push(idx);
+      unlockArrowMap[unlockId*10000 + tileInfo.TileID] = idx;
     }
 
     // 物品
@@ -679,6 +699,7 @@ function renderMapInfo() {
 }
 function renderTileInfo(pos) {
   infoDiv.style.display = '';
+  deleteSelectionTileUnlockPathEffect();
   if (!pos) {
     renderMapInfo();
     selectedTileId = null;
@@ -736,6 +757,7 @@ function renderTileInfo(pos) {
     text.push(`${tileInfo.Reward.str} (${tileInfo.Reward.id}) x${tileInfo.RewardNum}`);
   }
   infoDiv.textContent = text.join('\n');
+  setupSelectionTileUnlockPathEffect(tileInfo);
 }
 
 function calculateUnlockPointQueue(tiles) {
@@ -745,6 +767,7 @@ function calculateUnlockPointQueue(tiles) {
   if (tile.UnlockConditionTileID.length === 0) {
     tile.unlockTotalPointBefore = 0;
     tile.unlockTree = new Set();
+    tile.unlockPath = new Set();
     tile.CanUnlockTileIDs.forEach(i => {
       tiles.push(i);
     });
@@ -752,6 +775,7 @@ function calculateUnlockPointQueue(tiles) {
   }
   let unlockPoint = Infinity;
   let unlockTree = null;
+  let unlockPath = null;
   for (let prevId of tile.UnlockConditionTileID) {
     const prevTile = tileInfoMap[prevId];
     if (!prevTile || prevTile.unlockTotalPointBefore === undefined) {
@@ -761,6 +785,7 @@ function calculateUnlockPointQueue(tiles) {
     if (point < unlockPoint) {
       unlockPoint = point;
       unlockTree = prevTile.unlockTree.union(new Set([prevTile.TileID]));
+      unlockPath = prevTile.unlockPath.union(new Set([prevTile.TileID * 10000 + tile.TileID]));
     }
   }
   if (tile.UnlockKeyID) {
@@ -772,10 +797,12 @@ function calculateUnlockPointQueue(tiles) {
     }
     unlockPoint = (finishedTiles.current.has(keyTile.TileID) ? 0 : (keyTile.unlockTotalPointBefore + keyTile.Point)) + unlockPoint;
     unlockTree = keyTile.unlockTree.union(new Set([keyTile.TileID])).union(unlockTree);
+    unlockPath = keyTile.unlockPath.union(new Set([keyTile.TileID * 10000 + tile.TileID])).union(unlockPath);
   }
   if (tile.unlockTotalPointBefore === undefined || unlockPoint < tile.unlockTotalPointBefore) {
     tile.unlockTotalPointBefore = unlockPoint;
     tile.unlockTree = unlockTree;
+    tile.unlockPath = unlockPath;
     tile.CanUnlockTileIDs.forEach(i => {
       tiles.push(i);
     });
@@ -784,7 +811,6 @@ function calculateUnlockPointQueue(tiles) {
     tile.unlockTotalPointBefore = 0;
   }
 }
-
 function calculateUnlockPointFromStart() {
   const tiles = [1];
   for (let tile of tileInfoMap) {
@@ -795,6 +821,35 @@ function calculateUnlockPointFromStart() {
   while (tiles.length) {
     calculateUnlockPointQueue(tiles);
   }
+}
+
+const unlockPathLights = [];
+function setupSelectionTileUnlockPathEffect(tile) {
+  const unlockPath = tile.unlockPath;
+  const arrowWhite = sprites.arrow.arrowWhite.instance;
+  console.log(unlockPath);
+  for (let path of unlockPath) {
+    const arrowId = unlockArrowMap[path];
+    const matrix = new Matrix4();
+    arrowWhite.getMatrixAt(arrowId, matrix);
+    const position = new Vector3().setFromMatrixPosition(matrix);
+    position.y = LAYERS.ABOVE_ARROW;
+    matrix.setPosition(position);
+    arrowWhite.setMatrixAt(arrowId, matrix);
+  }
+  updateSprite(arrowWhite);
+}
+function deleteSelectionTileUnlockPathEffect() {
+  const arrowWhite = sprites.arrow.arrowWhite.instance;
+  for (let i = 0; i < arrowWhite.count; i++) {
+    const matrix = new Matrix4();
+    arrowWhite.getMatrixAt(i, matrix);
+    const position = new Vector3().setFromMatrixPosition(matrix);
+    position.y = LAYERS.BELOW_ARROW;
+    matrix.setPosition(position);
+    arrowWhite.setMatrixAt(i, matrix);
+  }
+  updateSprite(arrowWhite);
 }
 
 init();
