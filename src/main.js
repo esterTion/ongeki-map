@@ -83,12 +83,12 @@ function getLoadingDescription(adds, removes) {
   for (const remove of removes) delete loadingItem[remove];
   return Object.keys(loadingItem).map(i => `Loading ${i}`).join('\n');
 }
-const infoDiv = document.createElement('div');
-infoDiv.setAttribute('style', 'position:fixed;top:100px;left:10px;background-color:rgba(255,255,255,0.7);padding:20px;white-space:pre-wrap;max-width:300px;font-family:Arial,Meiryo,"Microsoft Yahei";pointer-events:none');
+const infoDiv = _('div');
+infoDiv.setAttribute('style', 'position:fixed;top:100px;left:calc(10px + env(safe-area-inset-left));background-color:rgba(255,255,255,0.7);padding:20px;white-space:pre-wrap;max-width:300px;font-family:Arial,Meiryo,"Microsoft Yahei";pointer-events:none');
 infoDiv.textContent = getLoadingDescription(['tiles', 'items', 'number', 'map-info'], []);
 document.body.appendChild(infoDiv);
 
-const rewardTypeSelect = _('select', { style: {position: 'fixed', top:'65px', left: '10px'}}, [
+const rewardTypeSelect = _('select', { style: {position: 'fixed', top:'65px', left: 'calc(10px + env(safe-area-inset-left))'}}, [
   _('option', { value: 'all' }, [_('text', '所有奖励')])
 ]);
 document.body.appendChild(rewardTypeSelect);
@@ -304,7 +304,7 @@ function updateSprite(sprite) {
 let selectTime = 0;
 function render(now) {
   sprites.arrow.arrow.texture.offset.x = -now / 2000;
-  sprites.arrow.arrowWhite.material.opacity = Math.max(0, Math.sin(now / 500) * 0.5 + 0.2);
+  sprites.arrow.arrowWhite.material.opacity = Math.sin((now - selectTime) / 400) * 0.3 + 0.4;
   {
     const scale = (Math.cos((now - selectTime) / 200) + 1) * 0.04 + 0.55;
     selectBox.scale.set(scale, scale, scale);
@@ -333,22 +333,23 @@ async function checkIntersection() {
 
 function onWindowResize() {
 
-  // camera.aspect = window.innerWidth / window.innerHeight;
-  camera.left = -window.innerWidth / 200;
-  camera.right = window.innerWidth / 200;
-  camera.top = window.innerHeight / 200;
-  camera.bottom = -window.innerHeight / 200;
+  const width = document.body.offsetWidth;
+  const height = document.body.offsetHeight;
+
+  // camera.aspect = width / height;
+  camera.left = -width / 200;
+  camera.right = width / 200;
+  camera.top = height / 200;
+  camera.bottom = -height / 200;
   camera.updateProjectionMatrix();
 
-  renderer.setSize(window.innerWidth, window.innerHeight);
-
-  render();
+  renderer.setSize(width, height);
 
 }
 
 function initMaps() {
   const mapSelect = document.createElement('select');
-  mapSelect.setAttribute('style', 'position:fixed;top:30px;left:10px');
+  mapSelect.setAttribute('style', 'position:fixed;top:30px;left:calc(10px + env(safe-area-inset-left))');
   for (const mapId in maps) {
     const option = document.createElement('option');
     option.value = mapId;
