@@ -27,6 +27,10 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 // import Stats from 'three/addons/libs/stats.module.js';
 // import THREEx from './threex.rendererstats.js';
 
+import './style.css';
+import btnPlusSvg from './btn-plus.svg';
+import btnMinusSvg from './btn-minus.svg';
+
 const maps = {
   21: '修学旅行編',
   20: '期末試験編',
@@ -83,15 +87,21 @@ function getLoadingDescription(adds, removes) {
   for (const remove of removes) delete loadingItem[remove];
   return Object.keys(loadingItem).map(i => `Loading ${i}`).join('\n');
 }
-const infoDiv = _('div');
-infoDiv.setAttribute('style', 'position:fixed;top:100px;left:calc(10px + env(safe-area-inset-left));background-color:rgba(255,255,255,0.7);padding:20px;white-space:pre-wrap;max-width:300px;font-family:Arial,Meiryo,"Microsoft Yahei";pointer-events:none');
+const infoDiv = _('div', { className: 'info-box' });
 infoDiv.textContent = getLoadingDescription(['tiles', 'items', 'number', 'map-info'], []);
 document.body.appendChild(infoDiv);
 
-const rewardTypeSelect = _('select', { style: {position: 'fixed', top:'65px', left: 'calc(10px + env(safe-area-inset-left))'}}, [
+const rewardTypeSelect = _('select', { className: 'reward-select' }, [
   _('option', { value: 'all' }, [_('text', '所有奖励')])
 ]);
 document.body.appendChild(rewardTypeSelect);
+
+const zoomButtons = _('div', { className: 'zoom-button-group' }, [
+  _('button', { event: { click: _ => { buttonZoom(1); } } }, [_('img', { src: btnPlusSvg })]),
+  _('br'),
+  _('button', { event: { click: _ => { buttonZoom(-1); } } }, [_('img', { src: btnMinusSvg })]),
+]);
+document.body.appendChild(zoomButtons);
 
 // const stats = new Stats();
 // document.body.appendChild( stats.dom );
@@ -102,6 +112,16 @@ document.body.appendChild(rewardTypeSelect);
 // rendererStats.domElement.style.transform = 'scale(2)'
 // rendererStats.domElement.style.transformOrigin = '0 0'
 // document.body.appendChild( rendererStats.domElement )
+
+function buttonZoom(dir) {
+  controls._updateZoomParameters(innerWidth / 2, innerHeight / 2);
+  if (dir > 0) {
+    controls._dollyIn(controls._getZoomScale(-300));
+  } else {
+    controls._dollyOut(controls._getZoomScale(300));
+  }
+  controls.update();
+}
 
 function init() {
   // camera = new PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -348,10 +368,9 @@ function onWindowResize() {
 }
 
 function initMaps() {
-  const mapSelect = document.createElement('select');
-  mapSelect.setAttribute('style', 'position:fixed;top:30px;left:calc(10px + env(safe-area-inset-left))');
+  const mapSelect = _('select', { className: 'map-select' });
   for (const mapId in maps) {
-    const option = document.createElement('option');
+    const option = _('option');
     option.value = mapId;
     option.textContent = maps[mapId];
     mapSelect.appendChild(option);
